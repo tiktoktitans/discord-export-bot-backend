@@ -2,6 +2,7 @@ using Discord;
 using Discord.WebSocket;
 using Microsoft.Extensions.Configuration;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -165,7 +166,7 @@ public class Program
                 {
                     await command.FollowupWithFileAsync(
                         fileName,
-                        $"✅ Exported {limit} messages as {formatStr.ToUpper()}");
+                        $"✅ Exported {limit} messages as {format.ToUpper()}");
                 }
                 else
                 {
