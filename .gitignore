@@ -11,4 +11,5 @@ usage_log.txt
 whop_events.log
 exports.log
 *.user
-.DS_StoreDiscordChatExporter/
+.DS_Store
+DiscordChatExporter/
