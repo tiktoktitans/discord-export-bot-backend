@@ -65,4 +65,4 @@ Required Discord permissions:
 - Send Messages
 - Read Message History
 - Attach Files
-- Use Slash Commands
+- Use Slash Commands# Discord Export Bot Backend - Fixed Build
