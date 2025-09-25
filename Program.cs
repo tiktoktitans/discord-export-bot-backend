@@ -1,15 +1,10 @@
 using Discord;
 using Discord.WebSocket;
-using DiscordChatExporter.Core.Discord;
-using DiscordChatExporter.Core.Discord.Data;
-using DiscordChatExporter.Core.Exporting;
-using DiscordChatExporter.Core.Exporting.Filtering;
-using DiscordChatExporter.Core.Exporting.Partitioning;
-using Gress;
 using Microsoft.Extensions.Configuration;
 using System;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -146,15 +141,7 @@ public class Program
         await command.DeferAsync();
 
         var limit = (long)(command.Data.Options.FirstOrDefault(o => o.Name == "limit")?.Value ?? 100L);
-        var formatStr = command.Data.Options.FirstOrDefault(o => o.Name == "format")?.Value as string ?? "html";
-
-        var format = formatStr.ToLower() switch
-        {
-            "txt" => ExportFormat.PlainText,
-            "json" => ExportFormat.Json,
-            "csv" => ExportFormat.Csv,
-            _ => ExportFormat.HtmlDark
-        };
+        var format = command.Data.Options.FirstOrDefault(o => o.Name == "format")?.Value as string ?? "html";
 
         try
         {
@@ -215,58 +202,65 @@ public class Program
         string channelId,
         string guildName,
         string channelName,
-        ExportFormat format,
+        string format,
         int limit)
     {
-        var discordClient = new DiscordChatExporter.Core.Discord.DiscordClient(_botToken!);
+        // Simplified export - fetches recent messages and saves to file
+        var channel = _client?.GetChannel(ulong.Parse(channelId)) as IMessageChannel;
+        if (channel == null) return "";
 
-        var exportRequest = new ExportRequest(
-            Guild.DirectMessages,
-            new Channel(
-                Snowflake.Parse(channelId),
-                ChannelKind.GuildTextChat,
-                Snowflake.Zero,
-                null,
-                channelName,
-                null,
-                null,
-                null,
-                false,
-                null
-            ),
-            Path.GetTempPath(),
-            null,
-            format,
-            null,
-            null,
-            PartitionLimit.Null,
-            MessageFilter.Null,
-            true,
-            false,
-            false,
-            "en-US",
-            false
-        );
+        var messages = await channel.GetMessagesAsync(limit).FlattenAsync();
+        var fileName = Path.Combine(Path.GetTempPath(), $"{channelName}-{DateTime.Now:yyyyMMdd-HHmmss}.{GetFileExtension(format)}");
 
-        var exporter = new ChannelExporter(discordClient);
-        var progress = new Progress<Percentage>();
-        await exporter.ExportChannelAsync(exportRequest, progress);
+        using (var writer = new StreamWriter(fileName))
+        {
+            if (format == "html")
+            {
+                await writer.WriteLineAsync("<html><body><h1>" + channelName + "</h1>");
+                foreach (var msg in messages.Reverse())
+                {
+                    await writer.WriteLineAsync($"<p><b>{msg.Author.Username}</b> ({msg.Timestamp}): {msg.Content}</p>");
+                }
+                await writer.WriteLineAsync("</body></html>");
+            }
+            else if (format == "txt")
+            {
+                foreach (var msg in messages.Reverse())
+                {
+                    await writer.WriteLineAsync($"[{msg.Timestamp}] {msg.Author.Username}: {msg.Content}");
+                }
+            }
+            else if (format == "json")
+            {
+                await writer.WriteLineAsync("[");
+                var messageList = messages.Reverse().ToList();
+                for (int i = 0; i < messageList.Count; i++)
+                {
+                    var msg = messageList[i];
+                    await writer.WriteLineAsync($"  {{\"author\": \"{msg.Author.Username}\", \"content\": \"{msg.Content?.Replace("\"", "\\\"")}\", \"timestamp\": \"{msg.Timestamp}\"}}" + (i < messageList.Count - 1 ? "," : ""));
+                }
+                await writer.WriteLineAsync("]");
+            }
+            else if (format == "csv")
+            {
+                await writer.WriteLineAsync("Timestamp,Author,Content");
+                foreach (var msg in messages.Reverse())
+                {
+                    await writer.WriteLineAsync($"\"{msg.Timestamp}\",\"{msg.Author.Username}\",\"{msg.Content?.Replace("\"", "\"\"")}\"");
+                }
+            }
+        }
 
-        var pattern = $"{channelName}*.{GetFileExtension(format)}";
-        var files = Directory.GetFiles(Path.GetTempPath(), pattern)
-            .OrderByDescending(f => File.GetCreationTime(f))
-            .FirstOrDefault();
-
-        return files ?? "";
+        return fileName;
     }
 
-    private static string GetFileExtension(ExportFormat format)
+    private static string GetFileExtension(string format)
     {
         return format switch
         {
-            ExportFormat.PlainText => "txt",
-            ExportFormat.Csv => "csv",
-            ExportFormat.Json => "json",
+            "txt" => "txt",
+            "csv" => "csv",
+            "json" => "json",
             _ => "html"
         };
     }
